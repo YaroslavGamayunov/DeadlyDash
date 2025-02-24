@@ -1,5 +1,4 @@
 #include "TrailComponent.h"
-#include "ProceduralMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 
 UTrailComponent::UTrailComponent()
@@ -7,34 +6,41 @@ UTrailComponent::UTrailComponent()
     PrimaryComponentTick.bCanEverTick = true;
 
     // Создаем компонент процедурного меша и регистрируем его
-    TrailMeshComponent = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("TrailMeshComponent"));
-
+    SplineComp = CreateDefaultSubobject<USplineComponent>(TEXT("TrailMeshComponent"));
     // Не прикрепляем меш к игроку, чтобы он рисовался относительно уровня
-    TrailMeshComponent->SetupAttachment(nullptr);
-
+    SplineComp->SetupAttachment(nullptr);
     // Устанавливаем положение меша в нуль, чтобы он был в мировых координатах
-    TrailMeshComponent->SetWorldLocation(FVector::ZeroVector);
+    SplineComp->SetWorldLocation(FVector::ZeroVector);
+    SplineComp->SetMobility(EComponentMobility::Movable);
 
-    TrailMeshComponent->SetMobility(EComponentMobility::Movable);
+    TrailStaticMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("TrailStaticMeshComp"));
 
     bIsTrailActive = false;
 }
+
 
 void UTrailComponent::BeginPlay()
 {
     Super::BeginPlay();
 
     // Убеждаемся, что компонент меша зарегистрирован
-    if (!TrailMeshComponent->IsRegistered())
+    if (!SplineComp->IsRegistered())
     {
-        TrailMeshComponent->RegisterComponent();
+        SplineComp->RegisterComponent();
+    }
+    if (!TrailStaticMeshComp->IsRegistered())
+    {
+        TrailStaticMeshComp->RegisterComponent();
     }
 
+    TrailStaticMeshComp->SetCollisionEnabled(ECollisionEnabled::Type::QueryAndPhysics);
+ 
     // Создаем динамический экземпляр материала
     if (TrailMaterial)
     {
         TrailMaterialInstance = UMaterialInstanceDynamic::Create(TrailMaterial, this);
-        TrailMeshComponent->SetMaterial(0, TrailMaterialInstance);
+        SplineComp->SetMaterial(0, TrailMaterialInstance);
+        TrailMesh->SetMaterial(0, TrailMaterialInstance);
     }
 }
 
@@ -63,10 +69,11 @@ void UTrailComponent::ClearTrail()
     TrailPoints.Empty();
     PointTimestamps.Empty();
 
+    // todo 
     // Очищаем меш
-    if (TrailMeshComponent)
+    if (SplineComp)
     {
-        TrailMeshComponent->ClearAllMeshSections();
+        SplineComp->ClearSplinePoints();
     }
 }
 
@@ -86,9 +93,9 @@ void UTrailComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActor
     {
         CleanupOldPoints();
 
-        FVector CurrentLocation = GetComponentLocation();
+        FVector CurrentLocation = GetProjectedPosition();
 
-        if (TrailPoints.Num() == 0 || FVector::Dist(CurrentLocation, TrailPoints.Last()) >= MinDistanceBetweenPoints)
+        if (TrailPoints.Num() == 0 || !IsCloseToLastPoint(CurrentLocation))
         {
             // Добавляем новую точку
             TrailPoints.Add(CurrentLocation);
@@ -96,6 +103,58 @@ void UTrailComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActor
 
             UpdateTrailMeshes();
         }
+    }
+
+    // todo OptimizeTrailPoints();
+}
+
+bool UTrailComponent::IsCloseToLastPoint(const FVector &PointToAdd) const
+{
+    if (TrailPoints.Num() == 0)
+    {
+        return false;
+    }
+    auto LastPoint = TrailPoints.Last();
+
+    return FVector::DistXY(LastPoint, PointToAdd) < MinDistanceBetweenPoints;
+}
+
+float LinearityThreshold = 0.99f;
+
+void UTrailComponent::OptimizeTrailPoints()
+{
+    if (TrailPoints.Num() < 3) return;
+
+    TArray<FVector> NewPoints;
+
+    int StraightLineStart = TrailPoints.Num() - 2;
+    
+    while (StraightLineStart > 0)
+    {
+        const FVector& PrevPoint = TrailPoints[StraightLineStart-1];
+        const FVector& CurrentPoint = TrailPoints[StraightLineStart];
+        const FVector& NextPoint = TrailPoints[StraightLineStart+1];
+        
+        // Проверяем коллинеарность трех точек
+        FVector Dir1 = (CurrentPoint - PrevPoint).GetSafeNormal();
+        FVector Dir2 = (NextPoint - CurrentPoint).GetSafeNormal();
+        
+        float Dot = FVector::DotProduct(Dir1, Dir2);
+        
+        // Если точки почти на одной прямой - удаляем среднюю точку
+        if (Dot > LinearityThreshold)
+        {
+            StraightLineStart--;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    if (StraightLineStart > 0)
+    {
+        TrailPoints.RemoveAt(StraightLineStart + 1, TrailPoints.Num() - StraightLineStart - 2);
     }
 }
 
@@ -114,161 +173,106 @@ void UTrailComponent::CleanupOldPoints()
     }
 }
 
+
+FVector UTrailComponent::GetProjectedPosition() const
+{
+    FVector OriginalPosition = GetComponentLocation();
+    
+    
+    USkeletalMeshComponent* PlayerMesh = Cast<USkeletalMeshComponent>(GetOwner()->FindComponentByClass<USkeletalMeshComponent>());
+    
+    if (PlayerMesh)
+    {
+        
+        FBoxSphereBounds MeshBounds = PlayerMesh->Bounds;
+        FVector LowestPoint = MeshBounds.Origin - MeshBounds.BoxExtent;
+        
+        return FVector(
+            OriginalPosition.X,
+            OriginalPosition.Y,
+            LowestPoint.Z  
+        );
+    }
+    
+    return OriginalPosition;
+}
+
+
 // todo check performance (because mesh is recreated every tick)
 void UTrailComponent::UpdateTrailMeshes()
 {
-    if (TrailPoints.Num() < 2 || !TrailMeshComponent)
+    if (TrailPoints.Num() < 2 || !SplineComp)
     {
         return;
     }
-    TArray<FVector> Vertices;
-    TArray<int32> Triangles;
-    TArray<FVector> Normals;
-    TArray<FVector2D> UVs;
-    TArray<FProcMeshTangent> Tangents;
-
-    // Половина ширины и высоты пути
-    float TrailWidth = Width * 0.5f;
-    float TrailHeight = Height * 0.5f;
-
-    int32 NumPoints = TrailPoints.Num();
-
-    for (int32 i = 0; i < NumPoints; ++i)
+    SplineComp->ClearSplinePoints(false);
+    
+    for (int32 i = 0; i < TrailPoints.Num(); i++)
     {
-        FVector CurrPoint = TrailPoints[i];
-
-        FVector ForwardDir;
-        if (i < NumPoints - 1)
-        {
-            ForwardDir = (TrailPoints[i + 1] - CurrPoint).GetSafeNormal();
-        }
-        else if (i > 0)
-        {
-            ForwardDir = (CurrPoint - TrailPoints[i - 1]).GetSafeNormal();
-        }
-        else
-        {
-            ForwardDir = FVector::ForwardVector;
-        }
-
-        FVector UpDir = FVector::UpVector; // Если "вверх" по оси Z
-        FVector RightDir = FVector::CrossProduct(ForwardDir, UpDir).GetSafeNormal();
-
-        // Четыре угла с учётом ширины и высоты
-        FVector BottomLeft = CurrPoint - RightDir * TrailWidth - UpDir * TrailHeight;
-        FVector BottomRight = CurrPoint + RightDir * TrailWidth - UpDir * TrailHeight;
-        FVector TopLeft = CurrPoint - RightDir * TrailWidth + UpDir * TrailHeight;
-        FVector TopRight = CurrPoint + RightDir * TrailWidth + UpDir * TrailHeight;
-
-        // Добавляем вершины
-        Vertices.Add(BottomLeft);   // Индекс: i*4 + 0
-        Vertices.Add(BottomRight);  // Индекс: i*4 + 1
-        Vertices.Add(TopLeft);      // Индекс: i*4 + 2
-        Vertices.Add(TopRight);     // Индекс: i*4 + 3
-
-        // Добавляем нормали для каждой вершины
-        // Для упрощения можно использовать одну и ту же нормаль, но для правильного освещения рекомендуется вычислить нормали для каждой грани
-        Normals.Add(-ForwardDir); // Нижние вершины
-        Normals.Add(-ForwardDir);
-        Normals.Add(ForwardDir);  // Верхние вершины
-        Normals.Add(ForwardDir);
-
-        // UV координаты
-        float UCoord = i / (float)(NumPoints - 1);
-
-        UVs.Add(FVector2D(UCoord, 0.0f)); // BottomLeft
-        UVs.Add(FVector2D(UCoord, 1.0f)); // BottomRight
-        UVs.Add(FVector2D(UCoord, 0.0f)); // TopLeft
-        UVs.Add(FVector2D(UCoord, 1.0f)); // TopRight
-
-        // Тангенты
-        Tangents.Add(FProcMeshTangent(RightDir, false));
-        Tangents.Add(FProcMeshTangent(RightDir, false));
-        Tangents.Add(FProcMeshTangent(RightDir, false));
-        Tangents.Add(FProcMeshTangent(RightDir, false));
+        // false для того, чтобы изменения копились и применялись оптом (опционально)
+        SplineComp->AddSplinePoint(TrailPoints[i], ESplineCoordinateSpace::World, false);
+            // Устанавливаем тип точки как Curve (или CurveClamped),
+        // чтобы углы сглаживались автоматикой Unreal
+        SplineComp->SetSplinePointType(i, ESplinePointType::Linear, false);
     }
-
-    // Создание треугольников для каждой секции пути
-    for (int32 i = 0; i < NumPoints - 1; ++i)
+    // Применяем изменения
+    SplineComp->UpdateSpline();
+    
+    for (USplineMeshComponent* SplineMesh : SplineMeshPool)
     {
-        int32 IndexBase = i * 4;
-
-        // Индексы текущей и следующей точки
-        int32 BL0 = IndexBase + 0; // BottomLeft текущий
-        int32 BR0 = IndexBase + 1; // BottomRight текущий
-        int32 TL0 = IndexBase + 2; // TopLeft текущий
-        int32 TR0 = IndexBase + 3; // TopRight текущий
-
-        int32 BL1 = IndexBase + 4; // BottomLeft следующий
-        int32 BR1 = IndexBase + 5; // BottomRight следующий
-        int32 TL1 = IndexBase + 6; // TopLeft следующий
-        int32 TR1 = IndexBase + 7; // TopRight следующий
-
-        // Верхняя грань
-        Triangles.Add(TL0);
-        Triangles.Add(TR1);
-        Triangles.Add(TR0);
-
-        Triangles.Add(TL0);
-        Triangles.Add(TL1);
-        Triangles.Add(TR1);
-
-        // Нижняя грань
-        Triangles.Add(BL0);
-        Triangles.Add(BR0);
-        Triangles.Add(BR1);
-
-        Triangles.Add(BL0);
-        Triangles.Add(BR1);
-        Triangles.Add(BL1);
-
-        // Левая грань
-        Triangles.Add(BL0);
-        Triangles.Add(TL1);
-        Triangles.Add(TL0);
-
-        Triangles.Add(BL0);
-        Triangles.Add(BL1);
-        Triangles.Add(TL1);
-
-        // Правая грань
-        Triangles.Add(BR0);
-        Triangles.Add(TR0);
-        Triangles.Add(TR1);
-
-        Triangles.Add(BR0);
-        Triangles.Add(TR1);
-        Triangles.Add(BR1);
-
-        // Передняя грань (по направлению движения)
-        Triangles.Add(TL0);
-        Triangles.Add(TR0);
-        Triangles.Add(BR0);
-
-        Triangles.Add(TL0);
-        Triangles.Add(BR0);
-        Triangles.Add(BL0);
-
-        // Задняя грань
-        Triangles.Add(TL1);
-        Triangles.Add(BR1);
-        Triangles.Add(TR1);
-
-        Triangles.Add(TL1);
-        Triangles.Add(BL1);
-        Triangles.Add(BR1);
+        if (SplineMesh)
+        {
+            SplineMesh->DestroyComponent();
+        }
     }
+    SplineMeshPool.Empty();
 
-    // Очищаем предыдущие секции меша
-    TrailMeshComponent->ClearAllMeshSections();
+    // 5) Создаём новые SplineMeshComponents по парам соседних точек
+    const int32 NumPoints = SplineComp->GetNumberOfSplinePoints();
 
-    // Создаем новую секцию меша
-    TrailMeshComponent->CreateMeshSection(0, Vertices, Triangles, Normals, UVs, TArray<FColor>(), Tangents, true);
-    TrailMeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision); // todo check
-
-    // Устанавливаем материал
-    if (TrailMaterialInstance)
+    if (NumPoints > 1)
     {
-        TrailMeshComponent->SetMaterial(0, TrailMaterialInstance);
+        for (int32 i = 0; i < NumPoints - 1; i++)
+        {
+            // Создаем компонент, привязываем к нашему актеру
+            USplineMeshComponent* SplineMesh = NewObject<USplineMeshComponent>(this, USplineMeshComponent::StaticClass());
+            if (SplineMesh)
+            {
+                SplineMesh->RegisterComponent();
+                SplineMesh->SetMobility(EComponentMobility::Movable);
+                SplineMesh->AttachToComponent(SplineComp, FAttachmentTransformRules::KeepRelativeTransform);
+
+                // Применяем настройки коллизии
+                SplineMesh->SetCollisionEnabled(CollisionEnabled);
+                SplineMesh->SetCollisionProfileName(CollisionProfileName.Name, true);
+                SplineMesh->SetCollisionObjectType(CollisionObjectType);
+
+                // Устанавливаем ответы на коллизию
+                for (const auto& Response : CollisionResponses)
+                {
+                    SplineMesh->SetCollisionResponseToChannel(Response.Key, Response.Value);
+                }
+
+                // Вытягиваем "начальную" точку и "конечную"
+                FVector StartPos = SplineComp->GetLocationAtSplinePoint(i, ESplineCoordinateSpace::Local);
+                FVector StartTan = SplineComp->GetTangentAtSplinePoint(i, ESplineCoordinateSpace::Local);
+
+                FVector EndPos = SplineComp->GetLocationAtSplinePoint(i + 1, ESplineCoordinateSpace::Local);
+                FVector EndTan = SplineComp->GetTangentAtSplinePoint(i + 1, ESplineCoordinateSpace::Local);
+
+                // Задаём форму сегмента
+                SplineMesh->SetStartAndEnd(StartPos, StartTan, EndPos, EndTan);
+                SplineMesh->SetMaterial(0, TrailMaterialInstance);
+
+                // todo
+                if (TrailMesh)
+                {
+                    SplineMesh->SetStaticMesh(TrailMesh);
+                }
+
+                // Сохраняем в пул
+                SplineMeshPool.Add(SplineMesh);
+            }
+        }
     }
 }
