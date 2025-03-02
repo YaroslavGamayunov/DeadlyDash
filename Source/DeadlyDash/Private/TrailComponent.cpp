@@ -1,4 +1,6 @@
 #include "TrailComponent.h"
+
+#include "Components/CapsuleComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 
 UTrailComponent::UTrailComponent()
@@ -179,7 +181,7 @@ FVector UTrailComponent::GetProjectedPosition() const
     FVector OriginalPosition = GetComponentLocation();
     
     
-    USkeletalMeshComponent* PlayerMesh = Cast<USkeletalMeshComponent>(GetOwner()->FindComponentByClass<USkeletalMeshComponent>());
+    UCapsuleComponent* PlayerMesh = Cast<UCapsuleComponent>(GetOwner()->FindComponentByClass<UCapsuleComponent>());
     
     if (PlayerMesh)
     {
