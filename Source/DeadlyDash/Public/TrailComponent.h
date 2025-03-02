@@ -43,6 +43,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trail")
 	UStaticMesh* TrailMesh;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trail")
+	bool isTrailMeshVisible = true;
+
 	// Collision Preset
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Collision")
 	FCollisionProfileName CollisionProfileName = FName(TEXT("BlockAll"));
@@ -58,6 +61,7 @@ public:
 	// Collision Responses
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Collision")
 	TMap<TEnumAsByte<ECollisionChannel>, TEnumAsByte<ECollisionResponse>> CollisionResponses;
+	
 	
 	// Control functions
 	UFUNCTION(BlueprintCallable, Category = "Trail")

@@ -263,6 +263,7 @@ void UTrailComponent::UpdateTrailMeshes()
                 // Задаём форму сегмента
                 SplineMesh->SetStartAndEnd(StartPos, StartTan, EndPos, EndTan);
                 SplineMesh->SetMaterial(0, TrailMaterialInstance);
+                SplineMesh->SetVisibility(isTrailMeshVisible);
 
                 // todo
                 if (TrailMesh)
