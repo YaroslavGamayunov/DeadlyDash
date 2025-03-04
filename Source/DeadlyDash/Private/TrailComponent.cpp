@@ -35,14 +35,15 @@ void UTrailComponent::BeginPlay()
         TrailStaticMeshComp->RegisterComponent();
     }
 
-    TrailStaticMeshComp->SetCollisionEnabled(ECollisionEnabled::Type::QueryAndPhysics);
+    TrailStaticMeshComp->SetStaticMesh(TrailMesh);
+    
  
     // Создаем динамический экземпляр материала
-    if (TrailMaterial)
+    if (TrailStaticMeshComp && TrailMaterial)
     {
         TrailMaterialInstance = UMaterialInstanceDynamic::Create(TrailMaterial, this);
         SplineComp->SetMaterial(0, TrailMaterialInstance);
-        // TrailMesh->SetMaterial(0, TrailMaterialInstance);
+        TrailStaticMeshComp->SetMaterial(0, TrailMaterialInstance);
     }
 }
 
@@ -268,9 +269,9 @@ void UTrailComponent::UpdateTrailMeshes()
                 SplineMesh->SetVisibility(isTrailMeshVisible);
 
                 // todo
-                if (TrailMesh)
+                if (TrailStaticMeshComp)
                 {
-                    SplineMesh->SetStaticMesh(TrailMesh);
+                    SplineMesh->SetStaticMesh(TrailStaticMeshComp->GetStaticMesh());
                 }
 
                 // Сохраняем в пул
