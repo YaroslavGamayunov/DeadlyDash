@@ -42,7 +42,7 @@ void UTrailComponent::BeginPlay()
     {
         TrailMaterialInstance = UMaterialInstanceDynamic::Create(TrailMaterial, this);
         SplineComp->SetMaterial(0, TrailMaterialInstance);
-        TrailMesh->SetMaterial(0, TrailMaterialInstance);
+        // TrailMesh->SetMaterial(0, TrailMaterialInstance);
     }
 }
 
