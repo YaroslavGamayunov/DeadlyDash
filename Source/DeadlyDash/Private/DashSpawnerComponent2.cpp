@@ -4,257 +4,220 @@
 #include "TimerManager.h"
 #include "GameFramework/PlayerController.h"
 #include "Camera/PlayerCameraManager.h"
+#include "Camera/PlayerCameraManager.h"
 
 UDashSpawnerComponent2::UDashSpawnerComponent2()
 {
-    PrimaryComponentTick.bCanEverTick = false;
+	PrimaryComponentTick.bCanEverTick = true;
 }
 
 void UDashSpawnerComponent2::BeginPlay()
 {
-    Super::BeginPlay();
-
-    InitializeCubes();
-    SpawnInitialArrows();
-    
-    GetWorld()->GetTimerManager().SetTimer(
-        ViewportCheckTimer,
-        this,
-        &UDashSpawnerComponent2::CheckViewportAndSpawn,
-        ViewportCheckInterval,
-        true
-    );
+	Super::BeginPlay();
+	InitializeCubes();
+	ScheduleSpawnCheck();
 }
 
 void UDashSpawnerComponent2::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-    Super::EndPlay(EndPlayReason);
+	Super::EndPlay(EndPlayReason);
+	GetWorld()->GetTimerManager().ClearTimer(SpawnTimerHandle);
+}
 
-    for (AActor* Arrow : ActiveArrows)
-    {
-        if (IsValid(Arrow)) Arrow->Destroy();
-    }
-    ActiveArrows.Empty();
+void UDashSpawnerComponent2::TickComponent(float DeltaTime, ELevelTick TickType,
+                                           FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+	ProcessArrowVisibility();
 }
 
 void UDashSpawnerComponent2::InitializeCubes()
 {
-    TArray<AActor*> AllActors;
-    UGameplayStatics::GetAllActorsOfClass(GetWorld(), AActor::StaticClass(), AllActors);
+	TArray<AActor*> AllActors;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AActor::StaticClass(), AllActors);
 
-    for (AActor* Actor : AllActors)
-    {
-        // Проверка пути к актору в редакторе
-        FString ActorPath = Actor->GetPathName(GetWorld());
-        if (ActorPath.Contains(CubeFolderName.ToString()))
-        {
-            AvailableCubes.Add(Actor);
-        }
-    }
+	for (AActor* Actor : AllActors)
+	{
+		// Проверка пути к актору в редакторе
+		FString ActorPath = Actor->GetPathName(GetWorld());
+		if (ActorPath.Contains(CubeFolderName.ToString()))
+		{
+			AvailableCubes.Add(Actor);
+		}
+	}
 }
 
-void UDashSpawnerComponent2::SpawnInitialArrows()
+void UDashSpawnerComponent2::ScheduleSpawnCheck()
 {
-    const TArray<EDirection> InitialDirections = {
-        EDirection::North,
-        EDirection::East,
-        EDirection::South,
-        EDirection::West
-    };
-
-    for (const EDirection Dir : InitialDirections)
-    {
-        SpawnArrow(Dir);
-    }
+	GetWorld()->GetTimerManager().SetTimer(SpawnTimerHandle, [this]()
+	{
+		MaintainArrows();
+		ScheduleSpawnCheck();
+	}, SpawnCheckInterval, false);
 }
 
-bool UDashSpawnerComponent2::IsArrowVisible(AActor* Arrow) const
+void UDashSpawnerComponent2::MaintainArrows()
 {
-    if (!IsValid(Arrow)) return false;
+	CleanupExpiredArrows();
 
-    APlayerCameraManager* CameraManager = UGameplayStatics::GetPlayerCameraManager(GetWorld(), 0);
-    if (!CameraManager) return false;
+	TSet<EDirection> VisibleDirections;
+	for (const FArrowData& ArrowData : ActiveArrows)
+	{
+		if (ArrowData.bIsVisible && ArrowData.ArrowActor)
+		{
+			VisibleDirections.Add(ArrowData.Direction);
+		}
+	}
 
-    FVector CameraLocation = CameraManager->GetCameraLocation();
-    FVector ArrowLocation = Arrow->GetActorLocation();
-
-    // Проверка через проекцию на viewport
-    APlayerController* PC = UGameplayStatics::GetPlayerController(GetWorld(), 0);
-    if (!PC) return false;
-
-    FVector2D ScreenPosition;
-    PC->ProjectWorldLocationToScreen(ArrowLocation, ScreenPosition, true);
-    
-    int32 ViewportX, ViewportY;
-    PC->GetViewportSize(ViewportX, ViewportY);
-    
-    return ScreenPosition.X >= 0 && ScreenPosition.X <= ViewportX &&
-           ScreenPosition.Y >= 0 && ScreenPosition.Y <= ViewportY;
+	const EDirection AllDirections[] = {EDirection::North, EDirection::East, EDirection::South, EDirection::West};
+	for (EDirection Dir : AllDirections)
+	{
+		if (!VisibleDirections.Contains(Dir))
+		{
+			SpawnArrow(Dir);
+		}
+	}
 }
 
-EDirection UDashSpawnerComponent2::GetArrowDirection(AActor* Arrow) const
+void UDashSpawnerComponent2::CleanupExpiredArrows()
 {
-    if (!IsValid(Arrow)) return EDirection::North;
-    
-    const float Yaw = Arrow->GetActorRotation().Yaw;
-    const int32 DirectionIndex = FMath::RoundToInt(Yaw / 90.0f) % 4;
-    return static_cast<EDirection>(DirectionIndex);
+	auto world = GetWorld();
+	float CurrentTime = 0.0f;
+	if (world)
+	{
+		CurrentTime = world->GetTimeSeconds();
+	}
+
+	for (int32 i = ActiveArrows.Num() - 1; i >= 0; --i)
+	{
+		if (ActiveArrows[i].LastVisibleTime > 0.0f && CurrentTime - ActiveArrows[i].LastVisibleTime > ArrowLifetime)
+		{
+			DestroyArrow(ActiveArrows[i].ArrowActor);
+			ReservedCubes.Remove(ActiveArrows[i].Cube);
+			ActiveArrows.RemoveAt(i);
+		}
+	}
 }
 
-void UDashSpawnerComponent2::CheckViewportAndSpawn()
+AActor* UDashSpawnerComponent2::GetSuitableCube() const
 {
-    // Удаляем невидимые стрелки
-    TArray<AActor*> ArrowsToRemove;
-    for (AActor* Arrow : ActiveArrows)
-    {
-        if (!IsArrowVisible(Arrow))
-        {
-            ArrowsToRemove.Add(Arrow);
-        }
-    }
-
-    for (AActor* Arrow : ArrowsToRemove)
-    {
-        DestroyArrow(Arrow);
-    }
-
-    // Поддерживаем общее количество
-    MaintainArrowCount();
+	TArray<AActor*> ValidCubes;
+	for (AActor* Cube : AvailableCubes)
+	{
+		if (ReservedCubes.Contains(Cube)) continue;
+		if (!IsCubeValid(Cube)) continue;
+		ValidCubes.Add(Cube);
+	}
+	return ValidCubes.Num() > 0 ? ValidCubes[FMath::RandRange(0, ValidCubes.Num() - 1)] : nullptr;
 }
 
-EDirection UDashSpawnerComponent2::GetRandomMissingDirection() const
+bool UDashSpawnerComponent2::IsCubeValid(AActor* Cube) const
 {
-    TSet<EDirection> ExistingDirections;
-    for (AActor* Arrow : ActiveArrows)
-    {
-        ExistingDirections.Add(GetArrowDirection(Arrow));
-    }
+	if (!IsValid(Cube)) return false;
 
-    TArray<EDirection> PossibleDirections;
-    const TArray<EDirection> AllDirections = {
-        EDirection::North,
-        EDirection::East,
-        EDirection::South,
-        EDirection::West
-    };
+	// Проверка дистанции до игрока
+	APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(GetWorld(), 0);
+	if (!PlayerPawn) return true;
 
-    for (const EDirection Dir : AllDirections)
-    {
-        if(!ExistingDirections.Contains(Dir) || 
-          (ExistingDirections.Num() == AllDirections.Num()))
-        {
-            PossibleDirections.Add(Dir);
-        }
-    }
+	const FVector PlayerLocation = PlayerPawn->GetActorLocation();
+	const FVector CubeLocation = Cube->GetActorLocation();
 
-    return PossibleDirections.Num() > 0 ? 
-        PossibleDirections[FMath::RandRange(0, PossibleDirections.Num()-1)] : 
-        AllDirections[FMath::RandRange(0, 3)];
-}
+	// Проверка горизонтального расстояния
+	const FVector2D PlayerPos2D(PlayerLocation.X, PlayerLocation.Y);
+	const FVector2D CubePos2D(CubeLocation.X, CubeLocation.Y);
+	const float HorizontalDist = FVector2D::Distance(PlayerPos2D, CubePos2D);
 
+	if (HorizontalDist < MinDistanceToPlayer) return false;
 
-void UDashSpawnerComponent2::MaintainArrowCount()
-{
-    const int32 TargetCount = 4;
-    const int32 CurrentCount = ActiveArrows.Num();
-    
-    if(CurrentCount < TargetCount)
-    {
-        // Создаем недостающие стрелки
-        for(int32 i = 0; i < TargetCount - CurrentCount; ++i)
-        {
-            SpawnArrow(GetRandomMissingDirection());
-        }
-    }
+	// Проверка видимости куба
+	APlayerController* PC = UGameplayStatics::GetPlayerController(GetWorld(), 0);
+	if (!PC) return true;
+
+	FVector2D ScreenPosition;
+	PC->ProjectWorldLocationToScreen(CubeLocation, ScreenPosition, true);
+
+	int32 ViewportX, ViewportY;
+	PC->GetViewportSize(ViewportX, ViewportY);
+
+	return ScreenPosition.X >= 0 && ScreenPosition.X <= ViewportX &&
+		ScreenPosition.Y >= 0 && ScreenPosition.Y <= ViewportY;
 }
 
 void UDashSpawnerComponent2::SpawnArrow(EDirection Direction)
 {
-    if(ActiveArrows.Num() >= 4) return; // Дополнительная проверка
+	if (AActor* Cube = GetSuitableCube())
+	{
+		ReservedCubes.Add(Cube);
+		const FTransform SpawnTransform(
+			FRotator(0, static_cast<float>(Direction) * 90.0f, 0),
+			Cube->GetActorLocation() + FVector(0, 0, 50)
+		);
 
-    AActor* Cube = GetRandomFreeCube();
-    if (!Cube || !DashTriggerClass) return;
+		AActor* NewArrow = GetWorld()->SpawnActor<AActor>(
+			DashTriggerClass,
+			SpawnTransform.GetLocation(),
+			SpawnTransform.Rotator()
+		);
 
-    const FRotator SpawnRotation(0, static_cast<int32>(Direction) * 90.0f, 0);
-    const FVector SpawnLocation = Cube->GetActorLocation() + FVector(0, 0, 50);
-
-    if (AActor* NewArrow = GetWorld()->SpawnActor<AActor>(DashTriggerClass, SpawnLocation, SpawnRotation))
-    {
-        ActiveArrows.Add(NewArrow);
-
-        FTimerHandle LifeTimer;
-        FTimerDelegate Delegate;
-        Delegate.BindUObject(this, &UDashSpawnerComponent2::DestroyArrow, NewArrow);
-        GetWorld()->GetTimerManager().SetTimer(LifeTimer, Delegate, ArrowLifeTime, false);
-    }
+		if (NewArrow)
+		{
+			ActiveArrows.Add({NewArrow, Cube, Direction, GetWorld()->GetTimeSeconds(), true});
+		}
+	}
 }
 
 void UDashSpawnerComponent2::DestroyArrow(AActor* Arrow)
 {
-    if (IsValid(Arrow))
-    {
-        ActiveArrows.Remove(Arrow);
-        Arrow->Destroy();
-        
-        // Немедленно создаем новую стрелку при удалении
-        MaintainArrowCount();
-    }
+	if (IsValid(Arrow)) Arrow->Destroy();
 }
 
-AActor* UDashSpawnerComponent2::GetRandomFreeCube() const
+void UDashSpawnerComponent2::ProcessArrowVisibility()
 {
-    TArray<AActor*> ValidCubes;
+	const float CurrentTime = GetWorld()->GetTimeSeconds();
+	APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0);
 
-    for (AActor* Cube : AvailableCubes)
-    {
-        if (!IsCubeValidForSpawning(Cube)) continue;
-        
-        bool bIsOccupied = false;
-        for (AActor* Arrow : ActiveArrows)
-        {
-            if (FVector::DistSquared(Cube->GetActorLocation(), 
-                Arrow->GetActorLocation()) < 100.0f)
-            {
-                bIsOccupied = true;
-                break;
-            }
-        }
-        
-        if (!bIsOccupied) ValidCubes.Add(Cube);
-    }
+	if (!PC) return;
 
-    return ValidCubes.Num() > 0 ? 
-        ValidCubes[FMath::RandRange(0, ValidCubes.Num() - 1)] : nullptr;
-}
+	for (FArrowData& ArrowData : ActiveArrows)
+	{
+		if (!IsValid(ArrowData.ArrowActor))
+		{
+			continue;
+		}
 
-bool UDashSpawnerComponent2::IsCubeValidForSpawning(AActor* Cube) const
-{
-    if (!IsValid(Cube)) return false;
+		if (CurrentTime - ArrowData.LastVisibilityCheckTime < 0.1f)
+		{
+			continue;
+		}
 
-    // Проверка дистанции до игрока
-    APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(GetWorld(), 0);
-    if (!PlayerPawn) return true;
+		ArrowData.LastVisibilityCheckTime = CurrentTime;
 
-    const FVector PlayerLocation = PlayerPawn->GetActorLocation();
-    const FVector CubeLocation = Cube->GetActorLocation();
-    
-    // Проверка горизонтального расстояния
-    const FVector2D PlayerPos2D(PlayerLocation.X, PlayerLocation.Y);
-    const FVector2D CubePos2D(CubeLocation.X, CubeLocation.Y);
-    const float HorizontalDist = FVector2D::Distance(PlayerPos2D, CubePos2D);
-    
-    if (HorizontalDist < MinDistanceToPlayer) return false;
+		FVector2D ScreenPosition;
+		const bool bProjected = UGameplayStatics::ProjectWorldToScreen(
+			PC,
+			ArrowData.ArrowActor->GetActorLocation(),
+			ScreenPosition,
+			true
+		);
 
-    // Проверка видимости куба
-    APlayerController* PC = UGameplayStatics::GetPlayerController(GetWorld(), 0);
-    if (!PC) return true;
+		if (bProjected)
+		{
+			int32 ViewportX, ViewportY;
+			PC->GetViewportSize(ViewportX, ViewportY);
 
-    FVector2D ScreenPosition;
-    PC->ProjectWorldLocationToScreen(CubeLocation, ScreenPosition, true);
-    
-    int32 ViewportX, ViewportY;
-    PC->GetViewportSize(ViewportX, ViewportY);
-    
-    return ScreenPosition.X >= 0 && ScreenPosition.X <= ViewportX &&
-           ScreenPosition.Y >= 0 && ScreenPosition.Y <= ViewportY;
+			ArrowData.bIsVisible =
+				ScreenPosition.X >= 0 && ScreenPosition.X <= ViewportX &&
+				ScreenPosition.Y >= 0 && ScreenPosition.Y <= ViewportY &&
+				(PC->PlayerCameraManager->GetCameraLocation() - ArrowData.ArrowActor->GetActorLocation()).Size() <
+				5000.0f;
+		}
+		else
+		{
+			ArrowData.bIsVisible = false;
+		}
+		if (ArrowData.bIsVisible)
+		{
+			ArrowData.LastVisibleTime = CurrentTime;
+		}
+	}
 }
