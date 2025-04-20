@@ -119,8 +119,10 @@ void ULoadGameFromFile::OnLevelLoaded(UWorld* LoadedWorld)
     // Устанавливаем позицию игроку
     if (APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(LoadedWorld, 0))
     {
-        PlayerPawn->SetActorLocation(LoadedPlayerPosition);
-        UE_LOG(LogTemp, Log, TEXT("Player position set to: %s"), *LoadedPlayerPosition.ToString());
+        if (!LoadedPlayerPosition.IsZero()) {
+            PlayerPawn->SetActorLocation(LoadedPlayerPosition);
+            UE_LOG(LogTemp, Log, TEXT("Player position set to: %s"), *LoadedPlayerPosition.ToString());
+        }
     }
     
     // Очищаем позицию
