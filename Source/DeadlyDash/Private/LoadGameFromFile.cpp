@@ -3,6 +3,7 @@
 
 #include "LoadGameFromFile.h"
 
+#include "CurrentSesionData.h"
 #include "DesktopPlatformModule.h"
 #include "IDesktopPlatform.h"
 #include "Kismet/GameplayStatics.h"
@@ -58,6 +59,7 @@ bool ULoadGameFromFile::LoadJSONAndStartLevel()
     {
         return false;
     }
+    UCurrentSessionData::SetSeed(Seed); 
 
     // Извлекаем позицию
     const TSharedPtr<FJsonObject>* PlayerObject = nullptr;
