@@ -4,19 +4,21 @@
 
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
-#include "LoadGameFromFile.generated.h"
+#include "GameLoader.generated.h"
 
 /**
  * 
  */
 UCLASS()
-class DEADLYDASH_API ULoadGameFromFile : public UBlueprintFunctionLibrary
+class DEADLYDASH_API UGameLoader : public UBlueprintFunctionLibrary
 {
 	GENERATED_BODY()
 
 public:
 	UFUNCTION(BlueprintCallable, Category = "File Operations", meta = (DisplayName = "Load JSON And Start Level"))
-	static bool LoadJSONAndStartLevel();
+	static bool LoadJSONAndStartLevel(FString Path);
+	UFUNCTION(BlueprintCallable, Category = "Game Loader", meta = (DisplayName = "Start Level"))
+	static bool StartLevel(int32 seed, int32 level, FVector position);
 private:
 	static FVector LoadedPlayerPosition;
 	static void OnLevelLoaded(UWorld* LoadedWorld);

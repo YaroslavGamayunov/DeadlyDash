@@ -1,38 +1,72 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 
-#include "LoadGameFromFile.h"
+#include "GameLoader.h"
 
 #include "CurrentSesionData.h"
 #include "DesktopPlatformModule.h"
 #include "IDesktopPlatform.h"
 #include "Kismet/GameplayStatics.h"
 
-FVector ULoadGameFromFile::LoadedPlayerPosition = FVector::ZeroVector;
+FVector UGameLoader::LoadedPlayerPosition = FVector::ZeroVector;
 
-bool ULoadGameFromFile::LoadJSONAndStartLevel()
+bool UGameLoader::StartLevel(int32 seed, int32 level, FVector position)
+{
+    const int32 MaxLevels = 5; 
+    const int32 ComputedLevel = (level + (seed % 1000)) % MaxLevels + 1;
+    const FString LevelName = FString::Printf(TEXT("Procedural_lvl_%d.umap"), ComputedLevel);
+    
+    const FString LevelPath = FString::Printf(
+        TEXT("/Game/Main_Game/Levels/Gameplay_levels_CodeZone/Procedural/Procedural_lvl_%d"),
+        ComputedLevel
+    );
+
+    // Проверка существования уровня
+    if (!FPackageName::DoesPackageExist(LevelPath))
+    {
+        UE_LOG(LogTemp, Error, TEXT("Level %s does not exist!"), *LevelPath);
+        return false;
+    }
+
+
+    // Сохраняем позицию в статической переменной
+    LoadedPlayerPosition = position;
+
+    // Загрузка уровня
+    UWorld* World = GWorld;
+    if (!World) return false;
+
+    // Подписываемся на событие завершения загрузки уровня
+    FCoreUObjectDelegates::PostLoadMapWithWorld.AddStatic(&OnLevelLoaded);
+
+    UGameplayStatics::OpenLevel(World, FName(*LevelPath));
+    return true;
+}
+
+
+bool UGameLoader::LoadJSONAndStartLevel(FString Path)
 {
     // Получаем десктопную платформу
     IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
     if (!DesktopPlatform) return false;
 
-    // Open file dialog
-    TArray<FString> SelectedFiles;
-    const bool bFileSelected = DesktopPlatform->OpenFileDialog(
-        FSlateApplication::Get().FindBestParentWindowHandleForDialogs(nullptr),
-        TEXT("Select Save File"),
-        FPaths::ProjectSavedDir(),
-        TEXT(""),
-        TEXT("JSON Files (*.json)|*.json"),
-        EFileDialogFlags::None,
-        SelectedFiles
-    );
+    // // Open file dialog
+    // TArray<FString> SelectedFiles;
+    // const bool bFileSelected = DesktopPlatform->OpenFileDialog(
+    //     FSlateApplication::Get().FindBestParentWindowHandleForDialogs(nullptr),
+    //     TEXT("Select Save File"),
+    //     FPaths::ProjectSavedDir(),
+    //     TEXT(""),
+    //     TEXT("JSON Files (*.json)|*.json"),
+    //     EFileDialogFlags::None,
+    //     SelectedFiles
+    // );
 
-    if (!bFileSelected || SelectedFiles.IsEmpty()) return false;
+    // if (!bFileSelected || SelectedFiles.IsEmpty()) return false;
 
     // Читаем содержимое файла
     FString FileContent;
-    if (!FFileHelper::LoadFileToString(FileContent, *SelectedFiles[0]))
+    if (!FFileHelper::LoadFileToString(FileContent, *Path))
     {
         return false;
     }
@@ -81,39 +115,11 @@ bool ULoadGameFromFile::LoadJSONAndStartLevel()
     {
         return false;
     }
-    
-    const int32 MaxLevels = 5; 
-    const int32 ComputedLevel = (LevelNumber + (Seed % 10)) % MaxLevels + 1;
-    const FString LevelName = FString::Printf(TEXT("Procedural_lvl_%d.umap"), ComputedLevel);
-    
-    const FString LevelPath = FString::Printf(
-        TEXT("/Game/Main_Game/Levels/Gameplay_levels_CodeZone/Procedural/Procedural_lvl_%d"),
-        ComputedLevel
-    );
 
-    // Проверка существования уровня
-    if (!FPackageName::DoesPackageExist(LevelPath))
-    {
-        UE_LOG(LogTemp, Error, TEXT("Level %s does not exist!"), *LevelPath);
-        return false;
-    }
-
-
-    // Сохраняем позицию в статической переменной
-    LoadedPlayerPosition = FVector(X, Y, Z);
-
-    // Загрузка уровня
-    UWorld* World = GWorld;
-    if (!World) return false;
-
-    // Подписываемся на событие завершения загрузки уровня
-    FCoreUObjectDelegates::PostLoadMapWithWorld.AddStatic(&OnLevelLoaded);
-
-    UGameplayStatics::OpenLevel(World, FName(*LevelPath));
-    return true;
+    return StartLevel(LevelNumber, Seed, FVector(X, Y, Z));
 }
 
-void ULoadGameFromFile::OnLevelLoaded(UWorld* LoadedWorld)
+void UGameLoader::OnLevelLoaded(UWorld* LoadedWorld)
 {
     // Отписываемся от события
     FCoreUObjectDelegates::PostLoadMapWithWorld.RemoveAll(&LoadedWorld);
