@@ -20,7 +20,7 @@ public:
 	static TArray<FSaveSlotInfo> GetSortedSaveSlots();
 	UFUNCTION(BlueprintCallable, Category = "Save System")
 	static FString DateTimeToString(const FDateTime& DateTime);
-
+	
 private:
 	static bool ParseSlotName(const FString& FileName, int32& OutSeed);
 };

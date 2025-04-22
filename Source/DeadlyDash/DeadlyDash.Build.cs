@@ -13,7 +13,8 @@ public class DeadlyDash : ModuleRules
 		PublicDependencyModuleNames.AddRange(new string[] {
 			"DesktopPlatform",
 			"Json",
-			"JsonUtilities"
+			"JsonUtilities",
+			"ApplicationCore",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
