@@ -4,8 +4,6 @@
 #include "GameLoader.h"
 
 #include "CurrentSesionData.h"
-#include "DesktopPlatformModule.h"
-#include "IDesktopPlatform.h"
 #include "Kismet/GameplayStatics.h"
 
 FVector UGameLoader::LoadedPlayerPosition = FVector::ZeroVector;
@@ -47,8 +45,8 @@ bool UGameLoader::StartLevel(int32 seed, int32 level, FVector position)
 bool UGameLoader::LoadJSONAndStartLevel(FString Path)
 {
     // Получаем десктопную платформу
-    IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
-    if (!DesktopPlatform) return false;
+    // IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
+    // if (!DesktopPlatform) return false;
 
     // // Open file dialog
     // TArray<FString> SelectedFiles;

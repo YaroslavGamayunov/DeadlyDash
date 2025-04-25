@@ -11,7 +11,6 @@ public class DeadlyDash : ModuleRules
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "ProceduralMeshComponent" });
 		
 		PublicDependencyModuleNames.AddRange(new string[] {
-			"DesktopPlatform",
 			"Json",
 			"JsonUtilities",
 			"ApplicationCore",
