@@ -3,15 +3,16 @@
 
 #include "CurrentSesionData.h"
 
-int32 UCurrentSessionData::Seed = 0;
+int UCurrentSessionData::Seed = 0;
+int UCurrentSessionData::Level = 0;
 TArray<FSaveSlotInfo> UCurrentSessionData::SavedSlotsList = TArray<FSaveSlotInfo>();
 
-void UCurrentSessionData::SetSeed(int32 NewSeed)
+void UCurrentSessionData::SetSeed(int NewSeed)
 {
 	Seed = NewSeed;
 }
 
-int32 UCurrentSessionData::GetSeed()
+int UCurrentSessionData::GetSeed()
 {
 	return Seed;
 }
@@ -29,4 +30,15 @@ void UCurrentSessionData::SetSavedSlotsList(const TArray<FSaveSlotInfo> &slots)
 TArray<FSaveSlotInfo> UCurrentSessionData::GetSavedSlotsList()
 {
 	return SavedSlotsList;
+}
+
+int UCurrentSessionData::GetLevel()
+{
+	return Level;
+}
+
+int UCurrentSessionData::IncreaseLevel()
+{
+	Level++;
+	return Level;
 }
