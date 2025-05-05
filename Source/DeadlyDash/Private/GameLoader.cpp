@@ -10,7 +10,7 @@ FVector UGameLoader::LoadedPlayerPosition = FVector::ZeroVector;
 
 bool UGameLoader::StartLevel(int32 seed, int32 level, FVector position)
 {
-    const int32 MaxLevels = 5; 
+    const int32 MaxLevels = 9; 
     const int32 ComputedLevel = (level + (seed % 1000)) % MaxLevels + 1;
     const FString LevelName = FString::Printf(TEXT("Procedural_lvl_%d.umap"), ComputedLevel);
     
