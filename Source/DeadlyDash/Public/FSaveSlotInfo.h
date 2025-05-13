@@ -16,5 +16,5 @@ struct FSaveSlotInfo
 	FDateTime SaveTime;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save System")
-	int32 Seed;
+	int32 Seed = 0;
 };

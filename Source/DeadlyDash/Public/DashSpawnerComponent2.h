@@ -25,7 +25,7 @@ struct FArrowData
 	AActor* Cube = nullptr;
 
 	UPROPERTY()
-	EDirection Direction;
+	EDirection Direction = EDirection::North;
     
 	double LastVisibilityCheckTime = 0.0f;
 	double LastVisibleTime = -1.0f;
