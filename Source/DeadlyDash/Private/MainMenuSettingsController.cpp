@@ -7,8 +7,6 @@
 #include "HAL/FileManager.h"
 #include "GameFramework/GameUserSettings.h"
 
-FString UMainMenuSettingsController::ConfigPath = FPaths::ProjectSavedDir() + TEXT("Config/GameSettings.ini");
-
 void UMainMenuSettingsController::SetScreenResolution(FString NewResolution)
 {
     FString WidthStr, HeightStr;
@@ -59,20 +57,20 @@ float UMainMenuSettingsController::MusicVolume = 60.0f;
 void UMainMenuSettingsController::SaveGameSettings()
 {
     FConfigFile ConfigFile;
-    ConfigFile.Read(ConfigPath);
+    ConfigFile.Read(GetConfigPath());
     ConfigFile.SetString(TEXT("Graphics"), TEXT("Resolution"), *Resolution);
     ConfigFile.SetString(TEXT("Graphics"), TEXT("TextureQuality"), *TextureQuality);
     ConfigFile.SetFloat(TEXT("Controls"), TEXT("MouseSensitivity"), MouseSensitivity);
     ConfigFile.SetFloat(TEXT("Audio"), TEXT("MasterVolume"), MasterVolume);
     ConfigFile.SetFloat(TEXT("Audio"), TEXT("MusicVolume"), MusicVolume);
     
-    ConfigFile.Write(ConfigPath);
+    ConfigFile.Write(GetConfigPath());
 }
 
 void UMainMenuSettingsController::LoadGameSettings()
 {
     FConfigFile ConfigFile;
-    ConfigFile.Read(ConfigPath);
+    ConfigFile.Read(GetConfigPath());
     ConfigFile.GetString(TEXT("Graphics"), TEXT("Resolution"), Resolution);
     ConfigFile.GetString(TEXT("Graphics"), TEXT("TextureQuality"), TextureQuality);
     ConfigFile.GetFloat(TEXT("Controls"), TEXT("MouseSensitivity"), MouseSensitivity);
@@ -98,4 +96,8 @@ void UMainMenuSettingsController::SetTextureQuality(FString NewQuality)
 void UMainMenuSettingsController::SetMouseSensitivity(float NewSensitivity) { MouseSensitivity = FMath::Clamp(NewSensitivity, 0.1f, 5.0f); }
 void UMainMenuSettingsController::SetMasterVolume(float NewVolume) { MasterVolume = FMath::Clamp(NewVolume, 0.0f, 100.0f); }
 void UMainMenuSettingsController::SetMusicVolume(float NewVolume) { MusicVolume = FMath::Clamp(NewVolume, 0.0f, 100.0f); }
+FString UMainMenuSettingsController::GetConfigPath() {
+    return FPaths::ProjectSavedDir() + TEXT("Config/GameSettings.ini");
+}
+
 

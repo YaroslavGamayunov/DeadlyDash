@@ -60,8 +60,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Game Settings")
 	static void SetMusicVolume(float NewVolume);
+
+	static FString GetConfigPath();
 private:
-	static FString ConfigPath;
 	static FString Resolution;
 	static FString TextureQuality;
 	static float MouseSensitivity;
